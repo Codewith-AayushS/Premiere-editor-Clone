@@ -105,7 +105,7 @@ function hexToFF(hex, alpha) {
 // Build a drawtext filter for a clip's textProperties so exported titles /
 // graphics / captions show the real text instead of the placeholder image.
 // Mirrors the preview renderer in ProgramMonitor.tsx.
-function buildTextOverlay(clip, width, height, fps) {
+function buildTextOverlay(clip, width, height) {
   const tp = clip.textProperties;
   if (!tp || !tp.text) return '';
   const start = Math.max(0, clip.startTime || 0);
@@ -240,7 +240,7 @@ async function probeMedia(filePath) {
       hasVideo: Boolean(videoStream),
       hasAudio: Boolean(audioStream)
     };
-  } catch (err) {
+  } catch {
     return {
       duration: 10.0,
       width: 1920,
@@ -261,7 +261,7 @@ async function generateThumbnail(filePath, outputThumbPath) {
       `ffmpeg -y -ss 00:00:01 -i "${cleanIn}" -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2" "${cleanOut}"`
     );
     return true;
-  } catch (err) {
+  } catch {
     try {
       const cleanIn = filePath.replace(/\\/g, '/');
       const cleanOut = outputThumbPath.replace(/\\/g, '/');
@@ -269,7 +269,7 @@ async function generateThumbnail(filePath, outputThumbPath) {
         `ffmpeg -y -ss 00:00:00 -i "${cleanIn}" -vframes 1 -vf "scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2" "${cleanOut}"`
       );
       return true;
-    } catch (e2) {
+    } catch {
       return false;
     }
   }
@@ -567,7 +567,7 @@ async function executeRenderJob(job, params) {
         // thirds) instead of the placeholder title-card image. This matches the
         // preview, which draws textProperties onto the canvas.
         if (clip.textProperties && clip.textProperties.text) {
-          const textFilters = buildTextOverlay(clip, width, height, fps);
+          const textFilters = buildTextOverlay(clip, width, height);
           // Transparent layer sized to the full frame, then draw the text on it.
           const textLayer = `v_text_${videoOverlayIndex}`;
           filterComplex.push(
@@ -598,7 +598,6 @@ async function executeRenderJob(job, params) {
 
         // Calculate color grading and visual effects filters
         let extraFilters = '';
-        let hasVideoEffects = false;
         if (clip.colorGrade) {
           const g = clip.colorGrade;
           const exp = Math.max(-1, Math.min(1, (g.exposure || 0) * 0.2));
@@ -702,7 +701,6 @@ async function executeRenderJob(job, params) {
         if (clip.appliedEffects) {
           for (const fx of clip.appliedEffects) {
             if (!fx.enabled) continue;
-            hasVideoEffects = true;
             if (fx.type === 'blur') extraFilters += `,boxblur=lr=${Math.max(1, Math.round(fx.value / 5))}:lp=1`;
             if (fx.type === 'sharpen') extraFilters += `,unsharp=5:5:${Math.max(0.1, Math.min(2, (fx.value || 50) / 100 * 1.5)).toFixed(2)}:5:5`;
             if (fx.type === 'contrast') extraFilters += `,eq=contrast=${Math.max(0.1, Math.min(3, 1 + (fx.value || 0) / 100)).toFixed(2)}`;
@@ -875,11 +873,11 @@ async function executeRenderJob(job, params) {
             if (fx.type === 'delay') {
               const dt = Math.max(20, Math.min(1500, Number(fx.params?.delayTime) || 300));
               const fb = Math.max(0, Math.min(0.9, (Number(fx.params?.feedback) || 30) / 100));
-              const mix = Math.max(0, Math.min(1, (Number(fx.params?.mix) ?? (fx.value || 30)) / 100));
+              const mix = Math.max(0, Math.min(1, (Number.isFinite(Number(fx.params?.mix)) ? Number(fx.params?.mix) : (fx.value || 30)) / 100));
               aChain += `,aecho=0.8:${(0.8 + fb * 0.19).toFixed(2)}:${dt}:${(0.4 * mix + 0.2).toFixed(2)}`;
             }
             if (fx.type === 'reverb') {
-              const mix = Math.max(0, Math.min(1, (Number(fx.params?.mix) ?? (fx.value || 30)) / 100));
+              const mix = Math.max(0, Math.min(1, (Number.isFinite(Number(fx.params?.mix)) ? Number(fx.params?.mix) : (fx.value || 30)) / 100));
               aChain += `,aecho=0.8:0.88:60|120|180:${(0.3 * mix + 0.1).toFixed(2)}|${(0.2 * mix + 0.05).toFixed(2)}|${(0.1 * mix + 0.02).toFixed(2)}`;
             }
             if (fx.type === 'flanger') {
@@ -997,7 +995,7 @@ async function executeRenderJob(job, params) {
     });
 
     ffmpegProc.on('close', code => {
-      try { if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath); } catch (e) {}
+      try { if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath); } catch {}
 
       if (code === 0) {
         job.status = 'completed';
@@ -1012,14 +1010,14 @@ async function executeRenderJob(job, params) {
     });
 
     ffmpegProc.on('error', err => {
-      try { if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath); } catch (e) {}
+      try { if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath); } catch {}
       job.status = 'failed';
       job.error = err.message;
       console.error(`Render job ${job.id} process error:`, err);
     });
 
   } catch (err) {
-    try { if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath); } catch (e) {}
+    try { if (fs.existsSync(tempScriptPath)) fs.unlinkSync(tempScriptPath); } catch {}
     job.status = 'failed';
     job.error = err.message;
     console.error('Render exception:', err);
@@ -1130,7 +1128,7 @@ app.post('/api/projects/autosave', (req, res) => {
 
     if (files.length > 20) {
       files.slice(20).forEach(f => {
-        try { fs.unlinkSync(path.join(autosaveDir, f.name)); } catch (e) {}
+        try { fs.unlinkSync(path.join(autosaveDir, f.name)); } catch {}
       });
     }
 
@@ -1221,7 +1219,7 @@ app.get('/api/projects', (req, res) => {
           clipCount: data.clips?.length || 0,
           assetCount: data.assets?.length || 0
         };
-      } catch (e) {
+      } catch {
         return null;
       }
     }).filter(Boolean);
@@ -1279,7 +1277,7 @@ app.post('/api/projects/relink', async (req, res) => {
           info.fps = Math.round(parseFloat(parts[0]) / parseFloat(parts[1]));
         }
       }
-    } catch (e) {}
+    } catch {}
 
     res.json({ success: true, clipId, newPath, info });
   } catch (err) {
@@ -1327,7 +1325,7 @@ app.post('/api/projects/collect', (req, res) => {
       }
     }
 
-    res.json({ success: true, copied, missed, totalSize: copied.reduce((s, c) => s + 0, 0) });
+    res.json({ success: true, copied, missed, totalSize: 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

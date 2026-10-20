@@ -2,6 +2,12 @@
   "name": "premiereproclone",
   "private": true,
   "version": "0.0.0",
+  "description": "Non-linear video editing workstation inspired by Adobe Premiere Pro - multitrack timeline, Lumetri-style color grading, effects, audio mixer, and real server-side FFmpeg MP4 export.",
+  "license": "MIT",
+  "author": "Aayush Singh",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "scripts": {
     "dev": "concurrently \"node server.js\" \"vite\"",
